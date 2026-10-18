@@ -51,6 +51,7 @@ import (
 	_ "github.com/cloudposse/atmos/cmd/list"
 	_ "github.com/cloudposse/atmos/cmd/lsp"
 	_ "github.com/cloudposse/atmos/cmd/mcp"
+	policycmd "github.com/cloudposse/atmos/cmd/policy"
 	_ "github.com/cloudposse/atmos/cmd/profile"
 	sbomcmd "github.com/cloudposse/atmos/cmd/sbom"
 	_ "github.com/cloudposse/atmos/cmd/scaffold"
@@ -104,6 +105,7 @@ import (
 	metricsprocess "github.com/cloudposse/atmos/pkg/metrics/process"
 	"github.com/cloudposse/atmos/pkg/pager"
 	"github.com/cloudposse/atmos/pkg/perf"
+	"github.com/cloudposse/atmos/pkg/policy/admission"
 	"github.com/cloudposse/atmos/pkg/pro"
 	"github.com/cloudposse/atmos/pkg/proexec"
 	atmosprofile "github.com/cloudposse/atmos/pkg/profile"
@@ -1936,6 +1938,26 @@ func Execute() error {
 	// fully initialized yet (custom commands/aliases not added). This is safe because
 	// --chdir is a global persistent flag defined in init().
 	if err := processEarlyChdirFlag(); err != nil {
+		return err
+	}
+	// Policy authoring commands deliberately do not load or execute project configuration.
+	if policycmd.IsInspection(RootCmd, os.Args[1:]) {
+		RootCmd.SilenceErrors = true
+		RootCmd.SilenceUsage = true
+		_, err := RootCmd.ExecuteC()
+		return err
+	}
+	restorePolicies, policyErr := admission.BeginInvocation()
+	if policyErr != nil {
+		return policyErr
+	}
+	defer restorePolicies()
+	restoreExplain, explainErr := beginPolicyExplanation(os.Args[1:])
+	if explainErr != nil {
+		return explainErr
+	}
+	defer restoreExplain()
+	if err := internal.CheckEarlyCommandAdmission(RootCmd, os.Args[1:]); err != nil {
 		return err
 	}
 	if err := preflightProjectInit(RootCmd, os.Args[1:]); err != nil {
